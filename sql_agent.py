@@ -1,10 +1,7 @@
-import os
 import google.generativeai as genai
 from dotenv import load_dotenv
 import sqlite3
-import typing_extensions as typing
-import json
-import re
+
 
 # Show me all employees in Engineering
 
@@ -74,20 +71,30 @@ def main():
     response = tool_model.generate_content(user_query)
     # print(response)
     # Extract the generated function call from the response
-    if "function_call" in response.candidates[0].content.parts[0]:
-        function_call = response.candidates[0].content.parts[0].function_call
-        function_name = function_call.name
-        function_args = function_call.args
-        print(f"Function call: {function_name}({function_args})")
-        if function_name == "tool_execute_sql_query":
-            # Call the function with the SQL query
-            result = globals()[function_name](**function_args)
-            
-            print("Query Results:", result)
-        else:
-            print("Unknown function call:", function_name)
+    candidates = response.candidates
+    if candidates:
+        for candidate in candidates:
+            if "content" in candidate and "parts" in candidate.content:
+                for part in candidate.content.parts:
+                    if "function_call" in part:
+                        function_call = part.function_call
+                        function_name = function_call.name
+                        function_args = function_call.args
+
+                        # print(f"Function call: {function_name}({function_args})")
+
+                        # Dynamically find and execute the function
+                        try:
+                            if function_name in globals():
+                                # Execute the function dynamically
+                                result = globals()[function_name](**function_args)
+                                print("Function Execution Result:", result)
+                            else:
+                                print("Unknown function call:", function_name)
+                        except Exception as e:
+                            print(f"Error executing function '{function_name}': {e}")
     else:
-        print("No function call in response. Generated content:", response.result)
+        print("No function call found in the response")
 
                             
 
