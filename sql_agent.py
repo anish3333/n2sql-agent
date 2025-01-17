@@ -6,26 +6,11 @@ import typing_extensions as typing
 import json
 import re
 
+# Show me all employees in Engineering
+
 # Load environment variables
 load_dotenv()
 
-# Configure Gemini
-genai.configure(api_key=os.getenv('GOOGLE_API_KEY'))
-model = genai.GenerativeModel('gemini-1.5-flash')
-
-class SQLResponse(typing.TypedDict):
-    thought: str
-    sql_query: str
-
-SCHEMA_DESCRIPTION = """
-Database Schema:
-Table: employees
-- id (INTEGER PRIMARY KEY)
-- name (TEXT)
-- department (TEXT)
-- salary (REAL)
-- hire_date (DATE)
-"""
 
 def execute_query(query):
     """Execute a SQL query and return results"""
@@ -58,66 +43,54 @@ def format_results(columns, results):
     
     return "\n".join(output)
 
-def get_sql_query(user_query):
-    """Get structured SQL query response from Gemini"""
-    prompt = f"""You are a SQL expert. Based on the following schema, convert the user's question into a SQL query.
-    
-{SCHEMA_DESCRIPTION}
 
-User question: {user_query}
+def tool_execute_sql_query(sql_query: str) -> list[list[str]]:
+    """
+    Execute a SQL query and return results
+    you have acces to the following table:
+    Table: employees
+    - id (INTEGER PRIMARY KEY)
+    - name (TEXT)
+    - department (TEXT)
+    - salary (REAL)
+    - hire_date (DATE)
+    see if the user wants to query the employees table and if so, execute the query
+    Args:
+        sql_query (str): SQL query to execute
+    Returns:
+        text (str): SQL query results
+    """
+    print(f"Executing SQL query: {sql_query}")
+    columns, results = execute_query(sql_query)
+    return format_results(columns, results)
 
-Use this JSON schema:
-
-
-SQLResponse = {{
-    "thought": str,
-    "sql_query": str
-}}
-Return: SQLResponse """
-
-    try:
-        response = model.generate_content(prompt)
-        
-        # Check if the response text is empty
-        if not response.text.strip():
-            return "No response from model", None
-          
-        pattern = r'\{[^{}]*\}'
-        matches = re.finditer(pattern, response.text)
-        result = ""
-        for match in matches:
-          json_str = match.group(0)
-          result = json.loads(json_str)
-          
-        return result.get("thought", ""), result.get("sql_query", None)
-    except json.JSONDecodeError as e:
-        return f"Error parsing response: {str(e)}", None
-    except Exception as e:
-        return f"Error generating query: {str(e)}", None
+tool_model = genai.GenerativeModel("gemini-2.0-flash-exp", tools=[tool_execute_sql_query])
 
 def main():
     # Get user input
     user_query = input("Enter your question: ")
     
-    # Generate SQL query
-    print("\nAnalyzing query...")
-    thought, sql_query = get_sql_query(user_query)
-    
-    if not sql_query:
-        print(f"Thought process: {thought}")
-        print("\nFailed to generate SQL query")
-        return
-    
-    print(f"Thought process: {thought}\n")
-    print(f"SQL Query: {sql_query}\n")
-    
-    # Execute query and show results
-    print("Results:")
-    columns, results = execute_query(sql_query)
-    if isinstance(results, str) and results.startswith("Error:"):
-        print(results)  # Print error message
+    # Generate the response from the tool model
+    response = tool_model.generate_content(user_query)
+    # print(response)
+    # Extract the generated function call from the response
+    if "function_call" in response.candidates[0].content.parts[0]:
+        function_call = response.candidates[0].content.parts[0].function_call
+        function_name = function_call.name
+        function_args = function_call.args
+        print(f"Function call: {function_name}({function_args})")
+        if function_name == "tool_execute_sql_query":
+            # Call the function with the SQL query
+            result = globals()[function_name](**function_args)
+            
+            print("Query Results:", result)
+        else:
+            print("Unknown function call:", function_name)
     else:
-        print(format_results(columns, results))
+        print("No function call in response. Generated content:", response.result)
+
+                            
 
 if __name__ == "__main__":
     main()
+
